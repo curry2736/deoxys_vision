@@ -8,7 +8,6 @@ from deoxys import config_root
 from deoxys.franka_interface import FrankaInterface
 from deoxys.utils import YamlConfig
 from deoxys.utils.input_utils import input2action
-from deoxys.utils.io_devices import SpaceMouse
 
 config_folder = os.path.join(os.path.expanduser("~/"), ".deoxys_vision/calibration_configuration")
 os.makedirs(os.path.join(os.path.expanduser("~/"), config_folder), exist_ok=True)
@@ -35,9 +34,10 @@ from deoxys_vision.utils.camera_utils import assert_camera_ref_convention, get_c
 import sys
 sys.path.append('/home/yifengz/robot_workspace')
 
+from viz_robot_cam import setup_env, update_robot_joints, render_obs
 from PIL import Image
 def setup_camera_interface(
-    camera_ref="rs_0", 
+    camera_ref="rs_1", 
     host="172.16.0.1", 
     port=6379, 
     use_rgb=True, 
@@ -99,7 +99,7 @@ def setup_camera_interface(
         import pyrealsense2 as rs
 
         color_cfg = EasyDict(
-            enabled=node_config.use_color, img_w=1280, img_h=720, imzg_format=rs.format.bgr8, fps=30
+            enabled=node_config.use_color, img_w=1280, img_h=720, img_format=rs.format.bgr8, fps=30
         )
 
         depth_cfg = EasyDict(
@@ -119,11 +119,11 @@ def setup_camera_interface(
     return camera_interface, camera2redis_pub_interface, node_config, camera_config
 
 def main():
-    # camera_interface, camera2redis_pub_interface, node_config, camera_config = setup_camera_interface()
-    # camera_interface.start()
-    #sim_env = setup_env()
-    device = SpaceMouse(vendor_id=9583, product_id=50734)
-    device.start_control()
+    camera_interface, camera2redis_pub_interface, node_config, camera_config = setup_camera_interface()
+    camera_interface.start()
+    sim_env = setup_env()
+    #device = SpaceMouse(vendor_id=9583, product_id=50734)
+    #device.start_control()
 
     # print(config_root)
     robot_interface = FrankaInterface(config_root + "/charmander.yml", use_visualizer=False)
@@ -135,53 +135,51 @@ def main():
     # controller_cfg["Kp"]["rotation"] = 50
 
     joints = []
-
-    recorded_joint = False
+    joint = False
     time.sleep(1.)    
     while True:
-        spacemouse_action, grasp = input2action(
-            device=device,
-            controller_type="OSC_POSE",
-        )
+        # spacemouse_action, grasp = input2action(
+        #     device=device,
+        #     controller_type="OSC_POSE",
+        # )
 
-        if spacemouse_action is None:
-            break
-
-        if len(robot_interface._state_buffer) > 0:
-            print(spacemouse_action[-1])
-            if spacemouse_action[-1] > 0 and not recorded_joint:
-                joints.append(robot_interface._state_buffer[-1].q)
-                print(len(robot_interface._state_buffer[-1].q))
-                recorded_joint = True
-                for _ in range(5):
-                    spacemouse_action, grasp = input2action(
-                        device=device,
-                        controller_type=controller_type,
-                    )
-            elif spacemouse_action[-1] < 0:
-                recorded_joint = False
-        else:
-            continue
-
-        # capture = camera_interface.get_last_obs()
-        # if capture is not None:
-        #     color_img = preprocess_color(capture["color"], flip_channel=camera_config.rgb_convention == "rgb")
-        #     # cv2.imshow("test", color_img[..., ::-1])
-        #     # cv2.waitKey(10)
-
-
-        #     # new_joint = robot_interface._state_buffer[-1].q
-        #     # update_robot_joints(sim_env, new_joint)
-        #     # sim_img = render_obs(sim_env)
-
-        #     # # Blend images 50-50
-        #     # blended_array = (sim_img * 0.5 + color_img * 0.5).astype(np.uint8)
-
-        #     # cv2.imshow("test", blended_array[..., ::-1])
-        #     # print('showing')
+        # if spacemouse_action is None:
+        #     break
+        
+        # if len(robot_interface._state_buffer) > 0:
+        #     print(spacemouse_action[-1])
+        #     if spacemouse_action[-1] > 0 and not recorded_joint:
+        #         joints.append(robot_interface._state_buffer[-1].q)
+        #         print(len(robot_interface._state_buffer[-1].q))
+        #         recorded_joint = True
+        #         for _ in range(5):
+        #             spacemouse_action, grasp = input2action(
+        #                 device=device,
+        #                 controller_type=controller_type,
+        #             )
+        #     elif spacemouse_action[-1] < 0:
+        #         recorded_joint = False
+        # else:
+        #     print('here')
+        #     continue
             
-        #     cv2.imshow("test", color_img[..., ::-1])
-        #     cv2.waitKey(10)
+        capture = camera_interface.get_last_obs()
+        if capture is not None:
+            color_img = preprocess_color(capture["color"], flip_channel=camera_config.rgb_convention == "rgb")
+            # cv2.imshow("test", color_img[..., ::-1])
+            # cv2.waitKey(10)
+
+
+            new_joint = robot_interface._state_buffer[-1].q
+            update_robot_joints(sim_env, new_joint)
+            sim_img = render_obs(sim_env)
+
+            # Blend images 50-50
+            blended_array = (sim_img * 0.5 + color_img * 0.5).astype(np.uint8)
+
+            cv2.imshow("test", blended_array[..., ::-1])
+            # cv2.imshow("test", color_img[..., ::-1])
+            cv2.waitKey(10)
         
         action = list(robot_interface._state_buffer[-1].q) + [-1]
         robot_interface.control(

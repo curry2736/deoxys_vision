@@ -14,7 +14,7 @@ from easydict import EasyDict
 from deoxys_vision.networking.camera_redis_interface import CameraRedisPubInterface
 from deoxys_vision.camera.k4a_interface import K4aInterface
 from deoxys_vision.camera.rs_interface import RSInterface
-from deoxys_vision.utils.img_utils import preprocess_color, preprocess_depth
+from deoxys_vision.utils.img_utils import preprocess_color, preprocess_depth, save_depth
 from deoxys_vision.utils.camera_utils import assert_camera_ref_convention, get_camera_info
 
 
@@ -40,6 +40,7 @@ def main():
     parser.add_argument("--visualization", action="store_true")
 
     parser.add_argument("--depth-visualization", action="store_true")
+    parser.add_argument('--serial-number')
 
     args = parser.parse_args()
 
@@ -88,19 +89,19 @@ def main():
         import pyrealsense2 as rs
 
         color_cfg = EasyDict(
-            enabled=node_config.use_color, img_w=640, img_h=480, img_format=rs.format.bgr8, fps=30
+            enabled=node_config.use_color, img_w=1280, img_h=720, img_format=rs.format.bgr8, fps=30
         )
 
         # if args.use_depth:
         depth_cfg = EasyDict(
-            enabled=node_config.use_depth, img_w=640, img_h=480, img_format=rs.format.z16, fps=30
+            enabled=node_config.use_depth, img_w=1280, img_h=720, img_format=rs.format.z16, fps=30
         )
         # else:
         #     depth_cfg = None
 
         pc_cfg = EasyDict(enabled=False)
         camera_interface = RSInterface(
-            device_id=camera_id, color_cfg=color_cfg, depth_cfg=depth_cfg, pc_cfg=pc_cfg
+            device_id=camera_id, color_cfg=color_cfg, depth_cfg=depth_cfg, pc_cfg=pc_cfg, serial_number=args.serial_number
         )
 
     camera_interface.start()
@@ -111,9 +112,11 @@ def main():
     camera_num = 0
     os.makedirs(save_dir)
 
-    COUNT_THRESH = 5
-    counter = COUNT_THRESH
+    COUNT_THRESH = 60000
+    counter = 0
 
+    final_intrinsics = camera_interface.get_color_intrinsics(mode="matrix")
+    print(f"Intrinsics matrix: {final_intrinsics}")
     img_counter = 0
     freq = 30.0
     MAX_IMG_NUM = 653360
@@ -208,6 +211,8 @@ def main():
         # print(color_img_name, ": ", img_info["time"])
         camera2redis_pub_interface.set_img_info(img_info)
         camera2redis_pub_interface.set_img_buffer(imgs=imgs)
+
+        print(counter, COUNT_THRESH)
 
         if counter < COUNT_THRESH:
             img_counter += 1

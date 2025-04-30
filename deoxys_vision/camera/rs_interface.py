@@ -1,9 +1,11 @@
+from typing import List
 import cv2
 import numpy as np
 import pyrealsense2 as rs
 from easydict import EasyDict
 
 from deoxys_vision.threading.threading_utils import Worker
+import warnings
 
 
 def get_rs_intrinsics_param(K_matrix: np.ndarray):
@@ -16,6 +18,9 @@ def get_rs_intrinsics_param(K_matrix: np.ndarray):
     """
     return {"fx": K_matrix[0][0], "fy": K_matrix[1][1], "cx": K_matrix[0][2], "cy": K_matrix[1][2]}
 
+def get_device_serial_num() -> List[str]:
+    ctx: rs.context = rs.context()
+    return [dev.get_info(rs.camera_info.serial_number) for dev in ctx.query_devices()]
 
 class RSCameraWorker(Worker):
     def __init__(
@@ -25,10 +30,17 @@ class RSCameraWorker(Worker):
         thread_safe: bool = True,
     ):
 
-        # try:
         self.pipeline = rs.pipeline()
-
         self.config = rs.config()
+
+        if camera_config.serial_number is not None and camera_config.device_id is not None:
+            warnings.warn("\033[93mBoth serial_number and device_id are provided. Using serial_number.\033[0m", UserWarning)
+        if camera_config.serial_number is not None:
+            self.config.enable_device(camera_config.serial_number)
+        else:
+            serial_to_use = get_device_serial_num()[camera_config.device_id]
+            print(f"Using camera with serial number: {serial_to_use}")
+            self.config.enable_device(get_device_serial_num()[camera_config.device_id])
 
         # rs.config.enable_device_from_file(config, args.input)
         # Configure the pipeline to stream the depth stream
@@ -90,7 +102,8 @@ class RSCameraWorker(Worker):
         self.depth_profile = rs.video_stream_profile(self.profile.get_stream(rs.stream.depth))
         color_intrinsics = self.color_profile.intrinsics
         depth_intrinsics = self.depth_profile.intrinsics
-        print(depth_intrinsics)
+        
+        print(f"{depth_intrinsics=}")
 
         color_K_matrix = np.array(
             [
@@ -109,8 +122,8 @@ class RSCameraWorker(Worker):
 
         self.calibration["color"]["intrinsics"] = color_K_matrix
         self.calibration["depth"]["intrinsics"] = depth_K_matrix
-        print(color_K_matrix)
-        print(depth_K_matrix)
+        print(f"{color_K_matrix=}")
+        print(f"{depth_K_matrix=}")
 
         self.calibration["color"]["distortion"] = np.array(color_intrinsics.coeffs)
         self.calibration["depth"]["distortion"] = np.array(depth_intrinsics.coeffs)
@@ -155,6 +168,7 @@ class RSInterface:
         color_cfg: dict = None,
         depth_cfg: dict = None,
         pc_cfg: dict = None,
+        serial_number: str = None,
     ):
 
         if color_cfg is not None:
@@ -187,6 +201,8 @@ class RSInterface:
             color_cfg=self.color_cfg,
             depth_cfg=self.depth_cfg,
             pc_cfg=self.pc_cfg,
+            device_id=device_id,
+            serial_number=serial_number,
         )
         self.camera = RSCameraWorker(
             camera_config=camera_config,

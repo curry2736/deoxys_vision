@@ -14,7 +14,7 @@ from deoxys.franka_interface.visualizer import PybulletVisualizer
 from deoxys.utils import load_yaml_config
 from deoxys.utils.input_utils import input2action
 from deoxys.utils.io_devices import SpaceMouse
-
+from PIL import Image
 from deoxys_vision.utils.camera_utils import assert_camera_ref_convention, get_camera_info
 from deoxys_vision.networking.camera_redis_interface import CameraRedisSubInterface
 from deoxys_vision.experimental.calibration import EyeInHandCalibration, EyeToHandCalibration
@@ -88,6 +88,7 @@ def main():
         controller_type = "JOINT_POSITION"
 
         intrinsics = cr_interface.get_img_info()["intrinsics"]
+
         print(intrinsics)
 
         for (idx, robot_joints) in enumerate(joint_list):
@@ -142,7 +143,8 @@ def main():
     elif args.calibration_type == "eye-to-hand":
         calibration_class_name = "EyeToHandCalibration"
         # hard-coded value, adjust based on your need
-        tag_size = 0.05931
+        #tag_size = 0.0596
+        tag_size = .0603
 
     with open(
         os.path.join(args.config_folder, f"{camera_info.camera_name}.json"), "r"
@@ -160,12 +162,15 @@ def main():
     for (idx, robot_joints) in enumerate(new_joint_list):
         img = cv2.imread(f"{calibration_img_folder}/{idx}_color.png")
         handeye_calibration.step(img, robot_joints, verbose=False)
+        if args.debug:
+            calib_result = handeye_calibration._marker_detector.vis_tag(img)[..., ::-1]
+            Image.fromarray(calib_result).save(f"{calibration_img_folder}/{idx}_color_detection_result.png")
 
     results = {}
     for calibration_method in ["tsai", 'horaud']:
         results[calibration_method] = {"pos": [], "rot": []}
         pos, rot = handeye_calibration.calibrate(calibration_method=calibration_method,
-                                      verbose=True)
+                                      verbose=args.debug)
         results[calibration_method]["pos"] = pos
         results[calibration_method]["rot"] = rot
     # Save calibration result

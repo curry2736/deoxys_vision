@@ -195,6 +195,7 @@ class EyeToHandCalibration(HandEyeCalibrationBase):
     def step(self, rgb_img, robot_joints, verbose=False):
         result = self.detect_marker(rgb_img)
         if result is None:
+            print("No marker found")
             return None
         (marker_pos_in_cam, marker_rot_in_cam) = result
         if verbose:

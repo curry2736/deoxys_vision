@@ -8,7 +8,6 @@ from deoxys import config_root
 from deoxys.franka_interface import FrankaInterface
 from deoxys.utils import YamlConfig
 from deoxys.utils.input_utils import input2action
-from deoxys.utils.io_devices import SpaceMouse
 
 config_folder = os.path.join(os.path.expanduser("~/"), ".deoxys_vision/calibration_configuration")
 os.makedirs(os.path.join(os.path.expanduser("~/"), config_folder), exist_ok=True)
@@ -37,7 +36,7 @@ sys.path.append('/home/yifengz/robot_workspace')
 
 from PIL import Image
 def setup_camera_interface(
-    camera_ref="rs_0", 
+    camera_ref="rs_1", 
     host="172.16.0.1", 
     port=6379, 
     use_rgb=True, 
@@ -99,7 +98,7 @@ def setup_camera_interface(
         import pyrealsense2 as rs
 
         color_cfg = EasyDict(
-            enabled=node_config.use_color, img_w=1280, img_h=720, imzg_format=rs.format.bgr8, fps=30
+            enabled=node_config.use_color, img_w=1280, img_h=720, img_format=rs.format.bgr8, fps=30
         )
 
         depth_cfg = EasyDict(
@@ -118,12 +117,15 @@ def setup_camera_interface(
 
     return camera_interface, camera2redis_pub_interface, node_config, camera_config
 
-def main():
-    # camera_interface, camera2redis_pub_interface, node_config, camera_config = setup_camera_interface()
-    # camera_interface.start()
-    #sim_env = setup_env()
-    device = SpaceMouse(vendor_id=9583, product_id=50734)
-    device.start_control()
+def main(overlay_image):
+    camera_interface, camera2redis_pub_interface, node_config, camera_config = setup_camera_interface()
+    camera_interface.start()
+
+    overlay_image = np.array(Image.open(overlay_image))
+    pixel_ranges_to_show = [(600, 900), (0, 150)] #(x_low, x_high), (y_low, y_high)
+    # pixel_ranges_to_show = [(0, 1280), (0, 720)] #(x_low, x_high), (y_low, y_high)
+    scale = 4  # or whatever integer factor you like
+    overlay_image = overlay_image[pixel_ranges_to_show[1][0]:pixel_ranges_to_show[1][1], pixel_ranges_to_show[0][0]:pixel_ranges_to_show[0][1], :]
 
     # print(config_root)
     robot_interface = FrankaInterface(config_root + "/charmander.yml", use_visualizer=False)
@@ -135,84 +137,65 @@ def main():
     # controller_cfg["Kp"]["rotation"] = 50
 
     joints = []
-
-    recorded_joint = False
+    joint = False
     time.sleep(1.)    
     while True:
-        spacemouse_action, grasp = input2action(
-            device=device,
-            controller_type="OSC_POSE",
-        )
+        # spacemouse_action, grasp = input2action(
+        #     device=device,
+        #     controller_type="OSC_POSE",
+        # )
 
-        if spacemouse_action is None:
-            break
-
-        if len(robot_interface._state_buffer) > 0:
-            print(spacemouse_action[-1])
-            if spacemouse_action[-1] > 0 and not recorded_joint:
-                joints.append(robot_interface._state_buffer[-1].q)
-                print(len(robot_interface._state_buffer[-1].q))
-                recorded_joint = True
-                for _ in range(5):
-                    spacemouse_action, grasp = input2action(
-                        device=device,
-                        controller_type=controller_type,
-                    )
-            elif spacemouse_action[-1] < 0:
-                recorded_joint = False
-        else:
-            continue
-
-        # capture = camera_interface.get_last_obs()
-        # if capture is not None:
-        #     color_img = preprocess_color(capture["color"], flip_channel=camera_config.rgb_convention == "rgb")
-        #     # cv2.imshow("test", color_img[..., ::-1])
-        #     # cv2.waitKey(10)
-
-
-        #     # new_joint = robot_interface._state_buffer[-1].q
-        #     # update_robot_joints(sim_env, new_joint)
-        #     # sim_img = render_obs(sim_env)
-
-        #     # # Blend images 50-50
-        #     # blended_array = (sim_img * 0.5 + color_img * 0.5).astype(np.uint8)
-
-        #     # cv2.imshow("test", blended_array[..., ::-1])
-        #     # print('showing')
-            
-        #     cv2.imshow("test", color_img[..., ::-1])
-        #     cv2.waitKey(10)
+        # if spacemouse_action is None:
+        #     break
         
-        action = list(robot_interface._state_buffer[-1].q) + [-1]
-        robot_interface.control(
-            controller_type=controller_type, action=action, controller_cfg=controller_cfg
-        )
+        # if len(robot_interface._state_buffer) > 0:
+        #     print(spacemouse_action[-1])
+        #     if spacemouse_action[-1] > 0 and not recorded_joint:
+        #         joints.append(robot_interface._state_buffer[-1].q)
+        #         print(len(robot_interface._state_buffer[-1].q))
+        #         recorded_joint = True
+        #         for _ in range(5):
+        #             spacemouse_action, grasp = input2action(
+        #                 device=device,
+        #                 controller_type=controller_type,
+        #             )
+        #     elif spacemouse_action[-1] < 0:
+        #         recorded_joint = False
+        # else:
+        #     print('here')
+        #     continue
+            
+        capture = camera_interface.get_last_obs()
+        if capture is not None:
+            color_img = preprocess_color(capture["color"], flip_channel=camera_config.rgb_convention == "rgb")
+            color_img = color_img[pixel_ranges_to_show[1][0]:pixel_ranges_to_show[1][1], pixel_ranges_to_show[0][0]:pixel_ranges_to_show[0][1], :]
 
-    save_joints = []
-    for joint in joints:
-        if np.linalg.norm(joint) < 1.0:
-            continue
-        # print(joint)
-        save_joints.append(np.array(joint).tolist())
+            # Blend images 50-50
+            blended_array = (overlay_image * 0.5 + color_img * 0.5).astype(np.uint8)
 
-    while True:
-        try:
-            save = int(input("save or not? (1 - Yes, 0 - No)"))
-        except ValueError:
-            print("Please input 1 or 0!")
-            continue
-        break
+            h, w = blended_array.shape[:2]
+            big = cv2.resize(
+                blended_array,
+                (w * scale, h * scale),
+                interpolation=cv2.INTER_NEAREST
+            )
 
-    if save:
-        file_name = input("Filename to save the joints: ")
-        joint_info_json_filename = f"{config_folder}/{file_name}.json"
-
-        with open(joint_info_json_filename, "w") as f:
-            json.dump({"joints": save_joints}, f, indent=4)
-        print(f"Saving to {joint_info_json_filename}")
-
-    robot_interface.close()
-
+            cv2.imshow("test", big[..., ::-1])
+            cv2.waitKey(10)
+        
+        # action = list(robot_interface._state_buffer[-1].q) + [-1]
+        # robot_interface.control(
+        #     controller_type=controller_type, action=action, controller_cfg=controller_cfg
+        # )
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Run the main process, optionally with an overlay image."
+    )
+    parser.add_argument(
+        "overlay_image",
+        type=str,
+        help="Path to an image file to overlay",
+    )
+    args = parser.parse_args()
+    main(overlay_image=args.overlay_image)

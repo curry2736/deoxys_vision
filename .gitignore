@@ -4,3 +4,12 @@
 rec_exp*
 tag_exp*
 build/*
+calibration_imgs/*
+logs/*
+*.log
+
+*.egg-info/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
